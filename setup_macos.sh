@@ -44,6 +44,34 @@ pip_install -r requirements-macos.txt
 pip_install git+https://github.com/EasternJournalist/utils3d.git
 
 export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-12.0}"
+
+# Prebuilt interpreters (e.g. Homebrew Python) bake the SDK that was active
+# at build time into CFLAGS/LDSHARED (-isysroot ...). If xcode-select now
+# points at a different toolchain (full Xcode vs Command Line Tools), the
+# build mixes headers from both SDKs and libc++ compilation fails. Re-anchor
+# any stale -isysroot to the active SDK.
+ACTIVE_SDK="$(xcrun --show-sdk-path)"
+align_sdk_flag() {
+  local name="$1" val="${!1:-}"
+  if [[ -z "$val" ]]; then
+    val="$("$PYTHON" -c 'import sysconfig,sys; print(sysconfig.get_config_var(sys.argv[1]) or "")' "$name")"
+  fi
+  if [[ "$val" == *"-isysroot "* && "$val" != *"-isysroot $ACTIVE_SDK"* ]]; then
+    export "$name"="$(printf '%s' "$val" | sed "s|-isysroot [^ ]*|-isysroot $ACTIVE_SDK|")"
+    echo "Aligned $name -isysroot to: $ACTIVE_SDK"
+  fi
+}
+for flag_var in CFLAGS CXXFLAGS LDSHARED LDCXXSHARED; do align_sdk_flag "$flag_var"; done
+
+# CPATH prepends its directories to the compiler search path in front of the
+# sysroot, so it can reintroduce the exact mixing the block above removes
+# (e.g. CPATH baked to one SDK's headers while the active toolchain is
+# another): math.h's isfinite/isinf/isnan macros then leak into
+# <simd/math.h> and the local C++ builds fail. Drop it and pin the default
+# SDK of the clang shim to the active one as well.
+unset CPATH
+export SDKROOT="$ACTIVE_SDK"
+
 pip_install --no-build-isolation "$DEPS_DIR/mtlbvh"
 pip_install --no-build-isolation "$DEPS_DIR/mtldiffrast"
 pip_install --no-build-isolation "$DEPS_DIR/mtlmesh"
