@@ -1,11 +1,17 @@
-git+https://github.com/microsoft/MoGe.git
+# MoGe main is now MoGe-3 (needs MoGe-3 checkpoints, trimesh>=4.11, and
+# CUDA-only deps like flex-gemm that do not build on macOS). This project
+# uses the MoGe-2 API (moge.model.v2), so pin the last MoGe-2 (v2.0.0)
+# commit on main.
+git+https://github.com/microsoft/MoGe.git@925b8ed835a7a9cdb7578ba15c658a0afc969030
 pillow==12.0.0
 imageio==2.37.2
 imageio-ffmpeg==0.6.0
 tqdm==4.67.1
 easydict==1.13
 opencv-python-headless==4.12.0.88
-trimesh==4.10.1
+# 4.11 is the first release with trimesh.graph.connected_component_labels,
+# used by backends/mesh_postprocess.py.
+trimesh==4.12.2
 transformers==4.57.3
 zstandard==0.25.0
 kornia==0.8.2
