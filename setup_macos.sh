@@ -72,6 +72,10 @@ for flag_var in CFLAGS CXXFLAGS LDSHARED LDCXXSHARED; do align_sdk_flag "$flag_v
 unset CPATH
 export SDKROOT="$ACTIVE_SDK"
 
+# The pinned dep revisions hardcode -std=metal4.0, which macOS < 26 rejects
+# at metallib load time. Patch them to an OS-adaptive default before build.
+"$PYTHON" patches/metal_std.py
+
 pip_install --no-build-isolation "$DEPS_DIR/mtlbvh"
 pip_install --no-build-isolation "$DEPS_DIR/mtldiffrast"
 pip_install --no-build-isolation "$DEPS_DIR/mtlmesh"

@@ -19,6 +19,14 @@ The setup script pins the Metal dependency revisions. Its patch step modifies
 only the installed third-party Metal `o_voxel`, not tracked Pixal3D sources.
 It refuses to patch a CUDA `o_voxel` installation.
 
+The Metal dependencies (`mtlgemm`, `mtlmesh`, `mtlbvh`, `mtldiffrast`) compile
+their metallibs with the newest Metal language version the host OS can load
+(metal3.2 on macOS 15, metal4.0 on macOS 26+): a metallib built with a newer
+standard is rejected at load time. The pinned dependency revisions hardcode
+metal4.0, so `setup_macos.sh` patches their build scripts before installing
+them (`patches/metal_std.py`). Set `METAL_STD` (for example
+`METAL_STD=metal3.1`) at build time to force a specific standard.
+
 Weights are downloaded from Hugging Face on demand. To populate the cache:
 
 ```bash
