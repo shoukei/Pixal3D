@@ -39,6 +39,13 @@ pip_install "torch>=2.13,<2.14" "torchvision>=0.28,<0.29" \
   setuptools wheel pybind11
 pip_install -r requirements.txt
 pip_install -r requirements-macos.txt
+# MoGe (installed below) declares an unpinned `opencv-python` dependency, which
+# uv resolves to the latest release (5.x). That wheel drops the OpenEXR codec,
+# so cv2.imread() on assets/hdri/*.exr returns None and environment-map
+# loading fails. Pin opencv-python to the same 4.12 build already pinned as
+# opencv-python-headless so the cv2 namespace resolves to a single, EXR-capable
+# version.
+pip_install "opencv-python==4.12.0.88"
 # MoGe currently requires the newer utils3d.pt API. The older 0.0.2 wheel
 # mentioned by the Pixal3D model card does not provide that module.
 pip_install git+https://github.com/EasternJournalist/utils3d.git

@@ -1,4 +1,11 @@
 import os
+
+# Must be set BEFORE `import cv2` (below): OpenCV reads OPENCV_IO_ENABLE_OPENEXR
+# at plugin-init time, which happens on first import. Without it the 4.12
+# wheel's OpenEXR codec stays disabled and cv2.imread() on .exr returns None.
+os.environ['OPENCV_IO_ENABLE_OPENEXR'] = '1'
+os.environ["FLEX_GEMM_AUTOTUNE_CACHE_PATH"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'autotune_cache.json')
+
 import argparse
 import math
 import time
@@ -23,8 +30,6 @@ except ImportError:
 # Lock for model initialization
 init_lock = threading.Lock()
 
-os.environ['OPENCV_IO_ENABLE_OPENEXR'] = '1'
-os.environ["FLEX_GEMM_AUTOTUNE_CACHE_PATH"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'autotune_cache.json')
 from macos_compat import configure
 import utils3d_compat  # noqa: F401  (shims missing utils3d.torch functions on macOS)
 import render_compat  # noqa: F401  (nvdiffrast/nvdiffrec shims on macOS)
@@ -244,14 +249,43 @@ def init_models():
         _base = os.path.dirname(os.path.abspath(__file__))
         _envmap_device = 'cpu' if LOW_VRAM else DEVICE
         envmap = {
-            'forest': EnvMap(torch.tensor(cv2.cvtColor(cv2.imread(os.path.join(_base, 'assets/hdri/forest.exr'), cv2.IMREAD_UNCHANGED), cv2.COLOR_BGR2RGB), dtype=torch.float32, device=_envmap_device)),
-            'sunset': EnvMap(torch.tensor(cv2.cvtColor(cv2.imread(os.path.join(_base, 'assets/hdri/sunset.exr'), cv2.IMREAD_UNCHANGED), cv2.COLOR_BGR2RGB), dtype=torch.float32, device=_envmap_device)),
-            'courtyard': EnvMap(torch.tensor(cv2.cvtColor(cv2.imread(os.path.join(_base, 'assets/hdri/courtyard.exr'), cv2.IMREAD_UNCHANGED), cv2.COLOR_BGR2RGB), dtype=torch.float32, device=_envmap_device)),
+            name: EnvMap(torch.tensor(read_exr_rgb(os.path.join(_base, 'assets/hdri', f'{name}.exr')), dtype=torch.float32, device=_envmap_device))
+            for name in ('forest', 'sunset', 'courtyard')
         }
 
 # ============================================================================
 # Utilities
 # ============================================================================
+
+def read_exr_rgb(path: str) -> np.ndarray:
+    """Read an OpenEXR file as an HxWx3 float32 RGB array via OpenCV.
+
+    Two conditions must both hold for cv2 to decode .exr:
+      1. The OpenCV build includes the OpenEXR plugin (opencv-python 5.x wheels
+         do not; the 4.12 build does). MoGe's unpinned `opencv-python` dep can
+         install a 5.x wheel that shadows the pinned 4.12 headless build.
+      2. OPENCV_IO_ENABLE_OPENEXR=1 is set before cv2 is first imported
+         (app.py sets it at module top, above `import cv2`).
+    Fail with an actionable message rather than a cryptic cvtColor assertion.
+    """
+    img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+    if img is None or (isinstance(img, np.ndarray) and img.size == 0):
+        raise RuntimeError(
+            f"cv2.imread failed to read {path!r}. The installed OpenCV "
+            f"({getattr(cv2, '__version__', 'unknown')}) cannot decode OpenEXR here. "
+            f"This happens when MoGe's unpinned 'opencv-python' dep installs a 5.x "
+            f"wheel (no OpenEXR codec) that shadows the pinned 4.12 headless build, "
+            f"or when OPENCV_IO_ENABLE_OPENEXR was not set before cv2 was imported. "
+            f"Fix: uv pip install 'opencv-python==4.12.0.88' (setup_macos.sh pins "
+            f"this automatically), then ensure OPENCV_IO_ENABLE_OPENEXR=1 is exported "
+            f"around the cv2 import."
+        )
+    if img.ndim == 3 and img.shape[2] == 4:        # BGRA -> BGR
+        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+    elif img.ndim == 2:                            # grayscale -> BGR
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32)
+
 
 def compute_f_pixels(camera_angle_x: float, resolution: int) -> float:
     focal_length = 16.0 / torch.tan(torch.tensor(camera_angle_x / 2.0))
