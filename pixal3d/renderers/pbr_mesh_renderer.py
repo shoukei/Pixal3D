@@ -6,6 +6,12 @@ import utils3d
 from ..representations.mesh import Mesh, MeshWithVoxel, MeshWithPbrMaterial, TextureFilterMode, AlphaMode, TextureWrapMode
 import torch.nn.functional as F
 
+# Resolve the render device once. Upstream code hardcodes 'cuda'; on macOS
+# (MPS) builds the 'cuda' string is rejected by torch, so remap it.
+_RENDER_DEVICE = "cuda" if torch.cuda.is_available() else (
+    "mps" if torch.backends.mps.is_available() else "cpu"
+)
+
 
 def cube_to_dir(s, x, y):
     if s == 0:   rx, ry, rz = torch.ones_like(x), -x, -y
@@ -20,10 +26,10 @@ def cube_to_dir(s, x, y):
 def latlong_to_cubemap(latlong_map, res):
     if 'dr' not in globals():
         import nvdiffrast.torch as dr
-    cubemap = torch.zeros(6, res[0], res[1], latlong_map.shape[-1], dtype=torch.float32, device='cuda')
+    cubemap = torch.zeros(6, res[0], res[1], latlong_map.shape[-1], dtype=torch.float32, device=_RENDER_DEVICE)
     for s in range(6):
-        gy, gx = torch.meshgrid(torch.linspace(-1.0 + 1.0 / res[0], 1.0 - 1.0 / res[0], res[0], device='cuda'), 
-                                torch.linspace(-1.0 + 1.0 / res[1], 1.0 - 1.0 / res[1], res[1], device='cuda'),
+        gy, gx = torch.meshgrid(torch.linspace(-1.0 + 1.0 / res[0], 1.0 - 1.0 / res[0], res[0], device=_RENDER_DEVICE), 
+                                torch.linspace(-1.0 + 1.0 / res[1], 1.0 - 1.0 / res[1], res[1], device=_RENDER_DEVICE),
                                 indexing='ij')
         v = F.normalize(cube_to_dir(s, gx, gy), dim=-1)
 
@@ -219,6 +225,8 @@ class PbrMeshRenderer:
         if 'dr' not in globals():
             import nvdiffrast.torch as dr
         
+        if device == "cuda" and not torch.cuda.is_available():
+            device = _RENDER_DEVICE
         self.rendering_options = edict({
             "resolution": None,
             "near": None,

@@ -26,6 +26,8 @@ init_lock = threading.Lock()
 os.environ['OPENCV_IO_ENABLE_OPENEXR'] = '1'
 os.environ["FLEX_GEMM_AUTOTUNE_CACHE_PATH"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'autotune_cache.json')
 from macos_compat import configure
+import utils3d_compat  # noqa: F401  (shims missing utils3d.torch functions on macOS)
+import render_compat  # noqa: F401  (nvdiffrast/nvdiffrec shims on macOS)
 
 DEVICE = configure()
 import torch
@@ -42,6 +44,15 @@ from gradio import Server
 from gradio.data_classes import FileData
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+
+# Gradio 6.x runs file-URL inputs through a safehttpx SSRF guard whose
+# PUBLIC_HOSTNAME_WHITELIST only contains hf.co/huggingface.co. Locally, uploads
+# produce self-referential URLs like http://127.0.0.1:7860/file=... which the
+# guard rejects ("Hostname 127.0.0.1 failed validation"). Allow loopback hosts.
+import gradio.processing_utils as _gr_processing_utils
+for _loopback_host in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):
+    if _loopback_host not in _gr_processing_utils.PUBLIC_HOSTNAME_WHITELIST:
+        _gr_processing_utils.PUBLIC_HOSTNAME_WHITELIST.append(_loopback_host)
 
 from pixal3d.modules.sparse import SparseTensor
 from pixal3d.pipelines import Pixal3DImageTo3DPipeline
@@ -619,4 +630,7 @@ if __name__ == "__main__":
     # Pre-initialize models before launching the server
     init_models()
     
-    app.launch(show_error=True, share=False)
+    # Serve generated artifacts (renders, GLBs) from tmp/ via /gradio_api/file.
+    # Without this, FileData.url (`/gradio_api/file=<abs path>`) returns 403 because
+    # tmp/ isn't in Gradio's allowed_paths, breaking GLB downloads and previews.
+    app.launch(show_error=True, share=False, allowed_paths=[TMP_DIR])
